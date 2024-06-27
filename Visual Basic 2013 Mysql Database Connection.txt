@@ -1,0 +1,156 @@
+Imports MySql.Data.MySqlClient
+Public Class Form1
+    Public dbconn As New MySqlConnection
+    Public sql As String
+    Public dbcomm As MySqlCommand
+    Public dbread As MySqlDataReader
+
+    Private Sub Form1_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
+
+        dbconn = New MySqlConnection("Data Source=localhost;userid=root;database=vb;")
+        Try
+            dbconn.Open()
+        Catch ex As Exception
+            MsgBox("Error in connection, please check Database and connection server.")
+        End Try
+
+    End Sub
+
+    Private Sub btn_save_Click(sender As Object, e As EventArgs) Handles btn_save.Click
+        sql = "INSERT INTO users(username) VALUES('" & text_user_name.Text & "')"
+        Try
+            dbcomm = New MySqlCommand(sql, dbconn)
+            dbread = dbcomm.ExecuteReader()
+            dbread.Close()
+        Catch ex As Exception
+            MsgBox("Error in saving to Database. Error is :" & ex.Message)
+            dbread.Close()
+            Exit Sub
+        End Try
+        MsgBox("The User Name was saved.")
+        text_user_name.Text = ""
+    End Sub
+
+    Private Sub btn_get_Click(sender As Object, e As EventArgs) Handles btn_get.Click
+        list_users.Items.Clear()
+        sql = "SELECT * FROM users"
+        Try
+            dbcomm = New MySqlCommand(sql, dbconn)
+            dbread = dbcomm.ExecuteReader()
+
+            While dbread.Read
+                list_users.Items.Add(dbread("username"))
+            End While
+
+            dbread.Close()
+        Catch ex As Exception
+            MsgBox("Error in collecting data from Database. Error is :" & ex.Message)
+            dbread.Close()
+            Exit Sub
+        End Try
+    End Sub
+End Class
+mysql2.vb
+Private Sub buttonRegister_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles buttonRegister.Click
+
+        'Does user already exists
+        Dim bUserExists As Boolean = _Users.UserExists(New UserID(textBoxUserName.Text))
+
+        ' first make sure the user is created if new user
+        If _ActiveUser Is Nothing Or Not bUserExists Then
+            ' initialize with supplied user name
+            _ActiveUser = New User(textBoxUserName.Text)
+        Else
+            ' update active user if not as originally selected
+            If bUserExists And Not listBoxUsers.SelectedItem.ToString() = textBoxUserName.Text Then
+                _ActiveUser = _Users(New UserID(textBoxUserName.Text))
+            End If
+        End If
+
+        ' and check if the template already exists for the assigned finger
+        If _ActiveUser.TemplateExists(_AssignedFinger) Then
+            ' show message indicating template already exists for selected finger
+            Dim diagResult As DialogResult = MessageBox.Show(Me, [String].Format("Oops!" + ControlChars.Cr + ControlChars.Lf + "{0} has a template enrolled to his/her {1} finger." + ControlChars.Cr + ControlChars.Lf + ControlChars.Cr + ControlChars.Lf + "Shall the old template be discarded?", _ActiveUser.ID.ToString(), _Fingers(_AssignedFinger)), "Template already assigned!", MessageBoxButtons.YesNo, MessageBoxIcon.Error)
+
+            ' if user selected not to overwrite, then abort
+            If diagResult = Windows.Forms.DialogResult.No Then
+                Return
+            End If
+        End If
+
+        Try
+            ' attempt to read the template
+            Dim templateOpened As New DPFP.Template(File.OpenRead(textBoxTemplateFilename.Text))
+
+            ' run a template duplicate check
+            IdentifyTemplate(templateOpened)
+
+            ' remove the old template if exists
+            If _ActiveUser.TemplateExists(_AssignedFinger) Then
+                ' removed from assigned finger
+                _ActiveUser.RemoveTemplate(_AssignedFinger)
+            End If
+
+            ' and assign it to the user as specified
+            _ActiveUser.AddTemplate(templateOpened, _AssignedFinger)
+
+            ' update collection
+            If Not _Users.UserExists(_ActiveUser.ID) Then
+                ' update list box
+                listBoxUsers.Items.Add(_ActiveUser.ID.ToString())
+
+                ' add user it to the user collection
+                _Users.AddUser(_ActiveUser)
+            End If
+
+            ' success
+            UpdateEventLog([String].Format("{0}: Template successfully assigned to {1} finger.", _ActiveUser.ID.ToString(), _AssignedFinger.ToString()))
+
+            ' turn off groupbox
+            groupAddTemplate.Visible = False
+
+            listBoxUsers.SelectedItem = _ActiveUser.ID.ToString()
+
+            ' sync gui
+            _syncUI()
+
+            ' view user
+            _syncViewUser()
+
+        Catch Err As DPFP.Error.SDKException
+            ' log message
+            UpdateEventLog(Err.ToString())
+            System.Diagnostics.Trace.WriteLine(Err.ToString())
+        Catch Err As System.IO.FileNotFoundException
+            ' log message
+            UpdateEventLog("Template file not found or is inaccessible.")
+            System.Diagnostics.Trace.WriteLine(Err.ToString())
+        Catch Err As Exception
+            ' log message
+            UpdateEventLog(Err.ToString())
+            System.Diagnostics.Trace.WriteLine(Err.ToString())
+        End Try
+
+        Using conn As New MySqlConnection("Server = localhost; Username= root; Password =; Database = vb")
+            Using cmd
+                With cmd
+                    MsgBox("Connection Established")
+                    .Connection = conn
+                    .Parameters.Clear()
+                    'Create Insert Query
+                    .CommandText = "INSERT INTO employees(UserID, Name, Finger) VALUES (@iID, @iName, @iFinger)"
+                    .Parameters.Add(New MySqlParameter("@iID", ID.Text))
+                    .Parameters.Add(New MySqlParameter("@iName", textBoxUserName.Text))
+                    .Parameters.Add(New MySqlParameter("@iFinger", comboBoxAssignedFinger.Text))
+
+
+                End With
+                Try
+                    'Open Connection and Execute Query
+                    conn.Open()
+                    cmd.ExecuteNonQuery()
+                Catch ex As MySqlException
+                    MsgBox(ex.Message.ToString())
+                End Try
+            End Using
+        End Using
